@@ -269,7 +269,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 			sample2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
 			diff = (sample2 > sample1) ? (sample2-sample1):((0xFFFF-sample1)+sample2+1);
 
-			samples_freq[n_samples] = (HAL_RCC_GetPCLK1Freq()/12)/diff;
+			samples_freq[n_samples] = (HAL_RCC_GetPCLK1Freq()/24)/diff;
 
 			__HAL_TIM_SetCounter(htim, 0);
 
