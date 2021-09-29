@@ -38,8 +38,9 @@
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 uint32_t sample1 = 0, sample2 = 0, diff = 0, freq = 0;
+float cons_inst = 0, cons_total = 0;
 uint8_t is_sample1 = 1, enable_send = 0;
-uint16_t samples_freq[256], n_samples = 0;
+uint16_t samples_freq[1024], n_samples = 0;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -68,6 +69,10 @@ int _write(int file, char *ptr, int len)
   HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, 10);
 
   return len;
+}
+
+float freq_to_consumption(float freq) {
+	return ((8.086*freq - 9.357)/3.6);		/*Eq da reta conforme datasheet - conversão para ml/s*/
 }
 /* USER CODE END 0 */
 
@@ -110,14 +115,16 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if(freq && n_samples > 4) {
-		  printf("Freq: %d  Amostras: %d\r\n", (int)(freq/n_samples), (int)n_samples);
+	  if(freq && n_samples > 8) {
+		  cons_inst = freq_to_consumption((float)(freq/n_samples));		//mL/s
+		  cons_total += (cons_inst/1000);
+		  printf("Amostras: %d	Instantaneo:%.1f mL/seg Acumulado:%.3f L\r\n", (int)n_samples, cons_inst, cons_total);
 		  memset(samples_freq, 0, n_samples*2);
 		  n_samples = 0;
 		  freq = 0;
 	  }
 
-	  HAL_Delay(500);
+	  HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
