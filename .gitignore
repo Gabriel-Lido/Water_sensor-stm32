@@ -1,3 +1,5 @@
 Debug/
 Release/
 .settings
+Core/Inc/messages.pb.h
+Core/Src/messages.pb.c
