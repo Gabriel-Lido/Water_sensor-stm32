@@ -24,6 +24,14 @@
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
 #include "string.h"
+#include "float.h"
+#include "nrf24.h"
+#include "messages_stm.pb.h"
+#include "pb.h"
+#include "pb_encode.h"
+#include "pb_decode.h"
+#include "pb_common.h"
+#include "flash_f1.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,9 +49,16 @@ uint32_t sample1 = 0, sample2 = 0, diff = 0, freq = 0;
 float cons_inst = 0, cons_total = 0;
 uint8_t is_sample1 = 1, enable_send = 0;
 uint16_t samples_freq[1024], n_samples = 0;
+
+uint8_t node_address[2][6] = {"Hub00", "Node1"};
+bool pairingMode = false;
+uint8_t data[32];
+uint8_t length;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+SPI_HandleTypeDef hspi1;
+
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
@@ -57,8 +72,13 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_SPI1_Init(void);
+static bool nrf_report();
+static bool nrf_pairing();
+static void nrf_pairing_report(char *_serial, int _channel);
 /* USER CODE BEGIN PFP */
-
+void r_PairingMessage(uint8_t *_data, int _data_len);
+void w_message(double v_rms, double i_rms, int pot_at, int pot_ap, int samples);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -72,7 +92,7 @@ int _write(int file, char *ptr, int len)
 }
 
 float freq_to_consumption(float freq) {
-	return ((8.086*freq - 9.357)/3.6);		/*Eq da reta conforme datasheet - conversão para ml/s*/
+	return ((11.086*freq - 9.357)/3.6);		/*Eq da reta conforme datasheet - conversão para ml/s*/
 }
 /* USER CODE END 0 */
 
@@ -83,7 +103,9 @@ float freq_to_consumption(float freq) {
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	/*Buffers flash*/
+//	uint8_t buff_write_flash[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+//	uint8_t buff_read_flash[16];
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -106,15 +128,79 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM2_Init();
   MX_USART1_UART_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
+
+  NRF24_begin(GPIOB, NRF_CSN_Pin, NRF_CE_Pin, hspi1);
+
+  NRF24_openWritingPipe(node_address[1], sizeof(node_address[1]) - 1);
+
+  NRF24_openReadingPipe(1, node_address[0], sizeof(node_address[0]) - 1);
+  //  NRF24_openReadingPipe(2, node_address[1], sizeof(node_address[1]) - 1);
+
+  NRF24_stopListening();
+
+  printRadioSettings();
+
+  printf("END SETUP\n\n");
+
+  /* Operações Flash*/
+//  Flash_Write_Data(FLASH_PAGE_ADDR , (uint32_t*)buff_write_flash, (sizeof(buff_write_flash)/sizeof(int)));
+//  Flash_Read_Data(FLASH_PAGE_ADDR , (uint32_t*)buff_read_flash, (sizeof(buff_write_flash)/sizeof(int)));
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	    if (pairingMode)
+	    {
+	      NRF24_startListening();
+	      HAL_Delay(500);
+	      unsigned long start = HAL_GetTick();
+	      bool aux = false;
+	      while (aux != true && (unsigned long)(HAL_GetTick()) - start <= 15000)
+	      {
+	        if (nrf_pairing())
+	        {
+	        	printf("\n\n[PAIRING] report");
+	        	nrf_pairing_report("NODE1", 69);
+	          aux = true;
+	        }
+	        HAL_GPIO_TogglePin(LED_2_GPIO_Port, LED_2_Pin);
+	        HAL_Delay(50);
+	      }
+	      if ((unsigned long)(HAL_GetTick()) - start > 15000)
+	      {
+	        printf("\n\n[PAIRING] Timeout\n\n");
+	      }
+
+	      NRF24_stopListening();
+	      HAL_Delay(500);
+	      start = HAL_GetTick();
+	      while (aux == true && (unsigned long)(HAL_GetTick()) - start <= 15000)
+	      {
+	        if (nrf_report())
+	        {
+	          aux = false;
+	          printf("\n\n[PAIRING] Success\n\n");
+	        }
+	        HAL_GPIO_TogglePin(LED_2_GPIO_Port, LED_2_Pin);
+	        HAL_Delay(250);
+	      }
+	      if ((unsigned long)(HAL_GetTick()) - start > 15000)
+	      {
+	        printf("\n\n[PAIRING] Timeout\n\n");
+	      }
+
+	      pairingMode = false;
+	      HAL_GPIO_WritePin(LED_2_GPIO_Port, LED_2_Pin, GPIO_PIN_SET);
+	    }
+
+	    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
 	  if(freq && n_samples > 8) {
 		  cons_inst = freq_to_consumption((float)(freq/n_samples));		//mL/s
 		  cons_total += (cons_inst/1000);
@@ -167,6 +253,44 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI1_Init(void)
+{
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+
+  /* USER CODE END SPI1_Init 0 */
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
+
 }
 
 /**
@@ -257,10 +381,42 @@ static void MX_USART1_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(NRF_CSN_GPIO_Port, NRF_CSN_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, NRF_CE_Pin|LED_2_Pin|LED_1_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : NRF_CSN_Pin */
+  GPIO_InitStruct.Pin = NRF_CSN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(NRF_CSN_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : NRF_CE_Pin LED_2_Pin LED_1_Pin */
+  GPIO_InitStruct.Pin = NRF_CE_Pin|LED_2_Pin|LED_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : SW2_Pin SW1_Pin */
+  GPIO_InitStruct.Pin = SW2_Pin|SW1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
 }
 
@@ -284,6 +440,126 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 			is_sample1 = 1;
 		}
 	}
+}
+
+unsigned long last_micros;
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  unsigned long debouncing_time = 200; // Debouncing Time in Milliseconds
+  if (GPIO_Pin == SW1_Pin)
+  {
+    if ((HAL_GetTick() - last_micros >= debouncing_time))
+    {
+      printf("\n\n\nSW1\n\n\n");
+      last_micros = HAL_GetTick();
+    }
+  }
+  if (GPIO_Pin == SW2_Pin)
+  {
+    if ((HAL_GetTick() - last_micros >= debouncing_time))
+    {
+      printf("\n\n\nPAIRING MODE ON\n\n\n");
+      pairingMode = true;
+      last_micros = HAL_GetTick();
+    }
+  }
+}
+
+void w_message(double v_rms, double i_rms, int pot_at, int pot_ap, int samples)
+{
+  uint8_t buffer[32];
+  EnergySensorReport msg = EnergySensorReport_init_zero;
+
+  pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+
+  msg.v_rms = v_rms;
+  msg.i_rms = i_rms;
+  msg.pot_aparente = pot_ap;
+  msg.pot_ativa = pot_at;
+  msg.samples = samples;
+  pb_encode(&stream, EnergySensorReport_fields, &msg);
+
+  printf("MSG SERIALIZED : ");
+  for (int i = 0; i < stream.bytes_written; i++)
+  {
+    data[i] = buffer[i];
+    printf("%02X", data[i]);
+  }
+  printf("\n");
+
+  data[31] = (uint8_t)stream.bytes_written;
+}
+
+bool nrf_report()
+{
+  unsigned long start_time = HAL_GetTick();
+  bool reported = NRF24_write(&data, sizeof(data)); // transmit & save the report
+  unsigned long end_time = HAL_GetTick();
+
+  if (reported)
+  {
+    printf("Transmission successful!"); // payload was delivered
+    printf("Tranmission time %lu ms\nSent: ", end_time - start_time);
+    for (int i = 0; i < 32; i++)
+    {
+      printf("%02X", data[i]);
+    }
+    printf("\n");
+  }
+  return reported;
+}
+
+void nrf_pairing_report(char *_serial, int _channel)
+{
+  uint8_t buffer[32];
+  PairingMessage msg = PairingMessage_init_zero;
+
+  pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+
+  strcpy(msg.serial, _serial);
+  msg.channel = _channel;
+  pb_encode(&stream, PairingMessage_fields, &msg);
+
+  printf("\nPairing Msg : ");
+  for (int i = 0; i < stream.bytes_written; i++)
+  {
+    data[i] = buffer[i];
+    printf("%02X", data[i]);
+  }
+  printf("\n");
+
+  data[31] = (uint8_t)stream.bytes_written;
+}
+
+bool nrf_pairing()
+{
+  uint8_t pipe;
+  if (NRF24_availablePipe(&pipe))
+  {
+    uint8_t bytes = NRF24_getPayloadSize(); // get the size of the payload
+    NRF24_read(&data, bytes);               // fetch payload from FIFO
+    printf("Received %d \n", bytes);        // print the size of the payload
+    printf(" bytes on pipe %d \n", pipe);
+    for (int i = 0; i < bytes; i++)
+    {
+      printf("%02X", data[i]);
+    }
+    printf("\n");
+    printf("\n");
+    r_PairingMessage(data, bytes);
+    printf("\n");
+    return true;
+  }
+  return false;
+}
+
+void r_PairingMessage(uint8_t *_data, int _data_len)
+{
+  PairingMessage msg = PairingMessage_init_zero;
+  pb_istream_t stream = pb_istream_from_buffer(_data, _data_len);
+  pb_decode(&stream, PairingMessage_fields, &msg);
+
+  printf("DECODED: Serial: %s  Channel: %d\r\n", msg.serial, (int)msg.channel);
 }
 /* USER CODE END 4 */
 
