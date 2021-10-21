@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
-  * This software component is licensed by ST under BSD 3-Clause license,
-  * the "License"; You may not use this file except in compliance with the
-  * License. You may obtain a copy of the License at:
-  *                        opensource.org/licenses/BSD-3-Clause
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
+ * All rights reserved.</center></h2>
+ *
+ * This software component is licensed by ST under BSD 3-Clause license,
+ * the "License"; You may not use this file except in compliance with the
+ * License. You may obtain a copy of the License at:
+ *                        opensource.org/licenses/BSD-3-Clause
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -41,6 +41,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define FLASH_PAGE_ADDR 0x0801FC00
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,7 +51,11 @@ float cons_inst = 0, cons_total = 0;
 uint8_t is_sample1 = 1, enable_send = 0;
 uint16_t samples_freq[1024], n_samples = 0;
 
-uint8_t node_address[2][6] = {"Hub00", "Node1"};
+float aux_cons_inst = 0;
+int samples = 0;
+
+uint8_t node_address[2][6] = {"HUB01", "WA101"};
+char sensor_serial[6] = "WA101";
 bool pairingMode = false;
 uint8_t data[32];
 uint8_t length;
@@ -78,7 +83,7 @@ static bool nrf_pairing();
 static void nrf_pairing_report(char *_serial, int _channel);
 /* USER CODE BEGIN PFP */
 void r_PairingMessage(uint8_t *_data, int _data_len);
-void w_message(double v_rms, double i_rms, int pot_at, int pot_ap, int samples);
+void w_message(double instant, int samples);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -86,26 +91,27 @@ void w_message(double v_rms, double i_rms, int pot_at, int pot_ap, int samples);
 int _write(int file, char *ptr, int len)
 {
   /* Implement your write code here, this is used by puts and printf for example */
-  HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, 10);
+  HAL_UART_Transmit(&huart1, (uint8_t *)ptr, len, 10);
 
   return len;
 }
 
-float freq_to_consumption(float freq) {
-	return ((11.086*freq - 9.357)/3.6);		/*Eq da reta conforme datasheet - conversão para ml/s*/
+float freq_to_consumption(float freq)
+{
+  return ((11.086 * freq - 9.357) / 3.6); /*Eq da reta conforme datasheet - conversão para ml/s*/
 }
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	/*Buffers flash*/
-//	uint8_t buff_write_flash[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
-//	uint8_t buff_read_flash[16];
+  /*Buffers flash*/
+  //	uint8_t buff_write_flash[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+  //	uint8_t buff_read_flash[16];
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -147,70 +153,95 @@ int main(void)
   printf("END SETUP\n\n");
 
   /* Operações Flash*/
-//  Flash_Write_Data(FLASH_PAGE_ADDR , (uint32_t*)buff_write_flash, (sizeof(buff_write_flash)/sizeof(int)));
-//  Flash_Read_Data(FLASH_PAGE_ADDR , (uint32_t*)buff_read_flash, (sizeof(buff_write_flash)/sizeof(int)));
+ //  Flash_Write_Data(FLASH_PAGE_ADDR , (uint32_t*)buff_write_flash, (sizeof(buff_write_flash)/sizeof(int)));
+   Flash_Read_Data(FLASH_PAGE_ADDR , (uint32_t*)node_address[0], (sizeof(node_address[0])/sizeof(int)));
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	    if (pairingMode)
-	    {
-	      NRF24_startListening();
-	      HAL_Delay(500);
-	      unsigned long start = HAL_GetTick();
-	      bool aux = false;
-	      while (aux != true && (unsigned long)(HAL_GetTick()) - start <= 15000)
-	      {
-	        if (nrf_pairing())
-	        {
-	        	printf("\n\n[PAIRING] report");
-	        	nrf_pairing_report("NODE1", 69);
-	          aux = true;
-	        }
-	        HAL_GPIO_TogglePin(LED_2_GPIO_Port, LED_2_Pin);
-	        HAL_Delay(50);
-	      }
-	      if ((unsigned long)(HAL_GetTick()) - start > 15000)
-	      {
-	        printf("\n\n[PAIRING] Timeout\n\n");
-	      }
+    if (pairingMode)
+    {
+      NRF24_startListening();
+      HAL_Delay(500);
+      unsigned long start = HAL_GetTick();
+      bool aux = false;
+      while (aux != true && (unsigned long)(HAL_GetTick()) - start <= 15000)
+      {
+        if (nrf_pairing())
+        {
+          printf("\n\n[PAIRING] report");
+          nrf_pairing_report(sensor_serial, 69);
+          aux = true;
+        }
+        HAL_GPIO_TogglePin(LED_2_GPIO_Port, LED_2_Pin);
+        HAL_Delay(50);
+      }
+      if ((unsigned long)(HAL_GetTick()) - start > 15000)
+      {
+        printf("\n\n[PAIRING] Timeout\n\n");
+      }
 
-	      NRF24_stopListening();
-	      HAL_Delay(500);
-	      start = HAL_GetTick();
-	      while (aux == true && (unsigned long)(HAL_GetTick()) - start <= 15000)
-	      {
-	        if (nrf_report())
-	        {
-	          aux = false;
-	          printf("\n\n[PAIRING] Success\n\n");
-	        }
-	        HAL_GPIO_TogglePin(LED_2_GPIO_Port, LED_2_Pin);
-	        HAL_Delay(250);
-	      }
-	      if ((unsigned long)(HAL_GetTick()) - start > 15000)
-	      {
-	        printf("\n\n[PAIRING] Timeout\n\n");
-	      }
+      NRF24_stopListening();
+      HAL_Delay(500);
+      start = HAL_GetTick();
+      while (aux == true && (unsigned long)(HAL_GetTick()) - start <= 15000)
+      {
+        if (nrf_report())
+        {
+          aux = false;
+          printf("\n\n[PAIRING] Success\n\n");
+        }
+        HAL_GPIO_TogglePin(LED_2_GPIO_Port, LED_2_Pin);
+        HAL_Delay(250);
+      }
+      if ((unsigned long)(HAL_GetTick()) - start > 15000)
+      {
+        printf("\n\n[PAIRING] Timeout\n\n");
+      }
 
-	      pairingMode = false;
-	      HAL_GPIO_WritePin(LED_2_GPIO_Port, LED_2_Pin, GPIO_PIN_SET);
-	    }
+      pairingMode = false;
+      HAL_GPIO_WritePin(LED_2_GPIO_Port, LED_2_Pin, GPIO_PIN_SET);
+    }
 
-	    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
-	  if(freq && n_samples > 8) {
-		  cons_inst = freq_to_consumption((float)(freq/n_samples));		//mL/s
-		  cons_total += (cons_inst/1000);
-		  printf("Amostras: %d	Instantaneo:%.1f mL/seg Acumulado:%.3f L\r\n", (int)n_samples, cons_inst, cons_total);
-		  memset(samples_freq, 0, n_samples*2);
-		  n_samples = 0;
-		  freq = 0;
-	  }
+    if (freq && n_samples > 8)
+    {
+      cons_inst = freq_to_consumption((float)(freq / n_samples)); // mL/s
+      cons_total += (cons_inst / 1000);
+      printf("Amostras: %d	Instantaneo:%.1f mL/seg Acumulado:%.3f L\r\n", (int)n_samples, cons_inst, cons_total);
+      memset(samples_freq, 0, n_samples * 2);
+      n_samples = 0;
+      freq = 0;
 
-	  HAL_Delay(1000);
+      if (samples == 0)
+        w_message(cons_inst, samples);
+      else
+        w_message(aux_cons_inst, samples);
+
+      unsigned long start = HAL_GetTick();
+      bool aux = false;
+      while (aux == false && (unsigned long)(HAL_GetTick()) - start <= 500)
+      {
+        if (nrf_report())
+        {
+          aux_cons_inst = 0;
+          samples = 0;
+          aux = true;
+          HAL_GPIO_TogglePin(LED_1_GPIO_Port, LED_1_Pin);
+        }
+      }
+      if ((unsigned long)(HAL_GetTick()) - start > 500)
+      {
+        printf("\n[TX] Timeout\n");
+        aux_cons_inst += cons_inst;
+        samples++;
+      }
+    }
+
+    HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -219,17 +250,17 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -241,9 +272,8 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -256,10 +286,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief SPI1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief SPI1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_SPI1_Init(void)
 {
 
@@ -290,14 +320,13 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
-
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM2_Init(void)
 {
 
@@ -312,7 +341,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 48-1;
+  htim2.Init.Prescaler = 48 - 1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 0xFFFF;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -338,14 +367,13 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief USART1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_USART1_UART_Init(void)
 {
 
@@ -371,14 +399,13 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -392,7 +419,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(NRF_CSN_GPIO_Port, NRF_CSN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, NRF_CE_Pin|LED_2_Pin|LED_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, NRF_CE_Pin | LED_2_Pin | LED_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : NRF_CSN_Pin */
   GPIO_InitStruct.Pin = NRF_CSN_Pin;
@@ -402,14 +429,14 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(NRF_CSN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : NRF_CE_Pin LED_2_Pin LED_1_Pin */
-  GPIO_InitStruct.Pin = NRF_CE_Pin|LED_2_Pin|LED_1_Pin;
+  GPIO_InitStruct.Pin = NRF_CE_Pin | LED_2_Pin | LED_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : SW2_Pin SW1_Pin */
-  GPIO_InitStruct.Pin = SW2_Pin|SW1_Pin;
+  GPIO_InitStruct.Pin = SW2_Pin | SW1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -417,29 +444,33 @@ static void MX_GPIO_Init(void)
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
 
-	if(htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
+  if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+  {
 
-		if(is_sample1) {
-			sample1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
-			is_sample1 = 0;
-		} else {
-			sample2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
-			diff = (sample2 > sample1) ? (sample2-sample1):((0xFFFF-sample1)+sample2+1);
+    if (is_sample1)
+    {
+      sample1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+      is_sample1 = 0;
+    }
+    else
+    {
+      sample2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+      diff = (sample2 > sample1) ? (sample2 - sample1) : ((0xFFFF - sample1) + sample2 + 1);
 
-			samples_freq[n_samples] = (HAL_RCC_GetPCLK1Freq()/24)/diff;
+      samples_freq[n_samples] = (HAL_RCC_GetPCLK1Freq() / 24) / diff;
 
-			__HAL_TIM_SetCounter(htim, 0);
+      __HAL_TIM_SetCounter(htim, 0);
 
-			freq += samples_freq[n_samples++];
-			is_sample1 = 1;
-		}
-	}
+      freq += samples_freq[n_samples++];
+      is_sample1 = 1;
+    }
+  }
 }
 
 unsigned long last_micros;
@@ -465,19 +496,16 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
 }
 
-void w_message(double v_rms, double i_rms, int pot_at, int pot_ap, int samples)
+void w_message(double instant, int samples)
 {
   uint8_t buffer[32];
-  EnergySensorReport msg = EnergySensorReport_init_zero;
+  WaterSensorReport msg = WaterSensorReport_init_zero;
 
   pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
 
-  msg.v_rms = v_rms;
-  msg.i_rms = i_rms;
-  msg.pot_aparente = pot_ap;
-  msg.pot_ativa = pot_at;
+  msg.instant = instant;
   msg.samples = samples;
-  pb_encode(&stream, EnergySensorReport_fields, &msg);
+  pb_encode(&stream, WaterSensorReport_fields, &msg);
 
   printf("MSG SERIALIZED : ");
   for (int i = 0; i < stream.bytes_written; i++)
@@ -560,13 +588,15 @@ void r_PairingMessage(uint8_t *_data, int _data_len)
   pb_decode(&stream, PairingMessage_fields, &msg);
 
   printf("DECODED: Serial: %s  Channel: %d\r\n", msg.serial, (int)msg.channel);
+
+  Flash_Write_Data(FLASH_PAGE_ADDR , (uint32_t*)msg.serial, (sizeof(msg.serial)/sizeof(int)));
 }
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -578,14 +608,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
