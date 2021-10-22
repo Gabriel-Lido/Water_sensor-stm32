@@ -54,7 +54,7 @@ uint16_t samples_freq[1024], n_samples = 0;
 float aux_cons_inst = 0;
 int samples = 0;
 
-uint8_t node_address[2][6] = {"HUB01", "WA101"};
+uint8_t node_address[3][6] = {"HUB01", "WA101", "12345"};
 char sensor_serial[6] = "WA101";
 bool pairingMode = false;
 uint8_t data[32];
@@ -139,6 +139,10 @@ int main(void)
 
   HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
 
+  /* Operações Flash*/
+  //  Flash_Write_Data(FLASH_PAGE_ADDR , (uint32_t*)buff_write_flash, (sizeof(buff_write_flash)/sizeof(int)));
+  //  Flash_Read_Data(FLASH_PAGE_ADDR , (uint32_t*)node_address[0], (sizeof(node_address[0])/sizeof(int)));
+
   NRF24_begin(GPIOB, NRF_CSN_Pin, NRF_CE_Pin, hspi1);
 
   NRF24_openWritingPipe(node_address[1], sizeof(node_address[1]) - 1);
@@ -151,11 +155,6 @@ int main(void)
   printRadioSettings();
 
   printf("END SETUP\n\n");
-
-  /* Operações Flash*/
- //  Flash_Write_Data(FLASH_PAGE_ADDR , (uint32_t*)buff_write_flash, (sizeof(buff_write_flash)/sizeof(int)));
-   Flash_Read_Data(FLASH_PAGE_ADDR , (uint32_t*)node_address[0], (sizeof(node_address[0])/sizeof(int)));
-  /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -182,7 +181,9 @@ int main(void)
       {
         printf("\n\n[PAIRING] Timeout\n\n");
       }
-
+      NRF24_stopListening();
+      NRF24_openWritingPipe(node_address[2], sizeof(node_address[2]) - 1);
+      HAL_Delay(1500);
       NRF24_stopListening();
       HAL_Delay(500);
       start = HAL_GetTick();
@@ -203,6 +204,10 @@ int main(void)
 
       pairingMode = false;
       HAL_GPIO_WritePin(LED_2_GPIO_Port, LED_2_Pin, GPIO_PIN_SET);
+      NRF24_stopListening();
+      NRF24_openWritingPipe(node_address[1], sizeof(node_address[1]) - 1);
+      HAL_Delay(1500);
+      NRF24_stopListening();
     }
 
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
@@ -589,7 +594,7 @@ void r_PairingMessage(uint8_t *_data, int _data_len)
 
   printf("DECODED: Serial: %s  Channel: %d\r\n", msg.serial, (int)msg.channel);
 
-  Flash_Write_Data(FLASH_PAGE_ADDR , (uint32_t*)msg.serial, (sizeof(msg.serial)/sizeof(int)));
+  // Flash_Write_Data(FLASH_PAGE_ADDR , (uint32_t*)msg.serial, (sizeof(msg.serial)/sizeof(int)));
 }
 /* USER CODE END 4 */
 
