@@ -8,13 +8,9 @@
 
 PB_BIND(WaterSensorReport, WaterSensorReport, AUTO)
 
-
 PB_BIND(EnergySensorReport, EnergySensorReport, AUTO)
 
-
 PB_BIND(PairingMessage, PairingMessage, AUTO)
-
-
 
 #ifndef PB_CONVERT_DOUBLE_FLOAT
 /* On some platforms (such as AVR), double is really float.
@@ -23,4 +19,3 @@ PB_BIND(PairingMessage, PairingMessage, AUTO)
  */
 PB_STATIC_ASSERT(sizeof(double) == 8, DOUBLE_MUST_BE_8_BYTES)
 #endif
-
